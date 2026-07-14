@@ -50,6 +50,7 @@ install.packages(c("odbc", "DBI", "tidyverse", "kableExtra"))
 - **INEKO** — rebríčky hodnotenia škôl: https://skoly.ineko.sk/rebricky/
 - Webové stránky škôl (súradnice, kontakty)
 
-## Možné vylepšenia
+## Návrh a prezentácia
 
-Textové stĺpce by si zaslúžili `NVARCHAR` namiesto `VARCHAR` (diakritika teraz závisí od collation servera) a stĺpec `Web` širší typ — pri `VARCHAR(50)` sú dve URL v dátach odseknuté. Analytická vrstva by sa dala rozšíriť o predikciu demografického vývoja a potreby kapacít škôl.
+(návrh databázy)[docs/database_documentation.pdf]
+(prezentácia výsledkov)[docs/presentation.pdf]
