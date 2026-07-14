@@ -52,5 +52,6 @@ install.packages(c("odbc", "DBI", "tidyverse", "kableExtra"))
 
 ## Návrh a prezentácia
 
-[návrh databázy](docs/database_documentation.pdf)
-[prezentácia výsledkov](docs/presentation.pdf)
+- [návrh databázy](docs/database_documentation.pdf)
+
+- [prezentácia výsledkov](docs/presentation.pdf)
