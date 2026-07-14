@@ -1,0 +1,300 @@
+---
+title: "Quo vadis, školstvo na Orave?"
+author: "Dana Kozáková"
+date: "2025-05-13"
+output: html_document
+---
+
+```{r, libraries, message = FALSE}
+suppressWarnings({
+library(DBI)
+library(odbc)
+library(dplyr)
+library(ggplot2)
+})
+
+con <- dbConnect(odbc(), 
+                 Driver = "ODBC Driver 17 for SQL Server", 
+                 Server = "REX\\SQLEXPRESS", 
+                 Database = "DAKO_ORAVA", 
+                 Trusted_Connection="yes",
+                 encoding = "CP1250")
+```
+
+## Migrácia študentov stredných škôl
+
+Nasledujúce grafy zobrazujú "čistý" podiel študentov, ktorí študujú strednú školu mimo svoj okres. "čistý" podiel znamená rozdiel domácich, ktorí študujú mimo okres a cudzích študentov, ktorí prichádzajú študovat do daného okresu.
+
+```{r načítanie, message = FALSE}
+print_graf_mig <- function(data, g_title ="Missing title", col = "black")  {
+  data  |> ggplot(aes(x = SkolskyRok, y = UbytokPrirastokStudentov, group = 1)) +
+  geom_line(colour = col, linewidth = 1.2) +
+  geom_point(colour = col, size = 2.5) +
+  labs(x = "Školský rok", y = "relatívny počet", title = g_title) +
+  ylim(-1, 0) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.8) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+}
+
+data_mig <- dbGetQuery(con,
+  "SELECT * FROM [DAKO_ORAVA].[dbo].[dako_Study_Migration_District_Namestovo]
+  ORDER BY SkolskyRok")
+data_mig  |> print_graf_mig("Migrácia študentov stredných škol z okresu Námestovo", "blue") 
+
+data_mig <- dbGetQuery(con,
+  "SELECT * FROM [DAKO_ORAVA].[dbo].[dako_Study_Migration_District_DolnyKubin]
+  ORDER BY SkolskyRok")
+data_mig  |> print_graf_mig("Migrácia študentov stredných škol z okresu Dolný Kubín", "darkgreen") 
+
+data_mig <- dbGetQuery(con,
+  "SELECT * FROM [DAKO_ORAVA].[dbo].[dako_Study_Migration_District_Tvrdosin]
+  ORDER BY SkolskyRok")
+data_mig  |> print_graf_mig("Migrácia študentov stredných škol z okresu Tvrdošín", "darkred") 
+
+
+```
+
+## Priemerný počet detí v školách za jednotlivé roky
+
+Priemerné počty deti v rôznych typoch škôl v priebehu rokov
+
+```{r pocty-skoly, message=FALSE, warning=FALSE}
+
+pocty <- dbReadTable(con, name = 'poctyVSkolach')
+typ <- dbReadTable(con, name = 'cisTypSkoly')
+podtyp <- dbReadTable(con, name = 'cisPodtypSkoly') |> select("IdPodtypSkoly", "FkIdTypSkoly")
+rok <- dbReadTable(con, name = 'cisSkRok')
+
+data_poc <- inner_join(pocty, podtyp, by =  join_by(FkIdPodtypSkoly == IdPodtypSkoly)) |>
+            inner_join(typ, by = join_by(FkIdTypSkoly == IdTypSkoly)) |>
+            inner_join(rok, by = join_by(FkIdSkRok == IdSkRok))
+
+avg_poc <- data_poc |> 
+  group_by(FkIdSkRok, SkolskyRok, FkIdTypSkoly, TypSkolyDesc) |> 
+  summarise(Avg_num = sum(PocetZiakov)/sum(PocetTried))
+
+avg_poc  |> ggplot(aes(x = SkolskyRok, y = Avg_num, group = TypSkolyDesc, colour = TypSkolyDesc)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 2.5) +
+  labs(x = "Školský rok", y = "priemerný počet", 
+       title = "Priemerný počet žiakov v triede na Orave", colour = "Typ školy") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+## Počet detí a počet škôl na Orave
+
+v poslednom školskom roku 2023/24
+
+```{r avg-pocty, message=FALSE, warning=FALSE, fig.width=10, fig.height=7}
+obec <- dbReadTable(con, name = 'cisObceOkresy')
+sum_poc <- data_poc |> 
+  filter(FkIdSkRok == 28 & FkIdTypSkoly == 1 & PocetTried != 0) |>
+  inner_join( obec, by =  join_by(FkIdObec == IdObec)) |>
+  group_by(FkIdObec, ObecNazov, FkIdTypSkoly, TypSkolyDesc) |> 
+  summarise(AvgClassInSchool = sum(PocetTried)/sum(PocetSkol),
+            AvgStudInClass = sum(PocetZiakov)/sum(PocetTried)) 
+
+plot(x = sum_poc$AvgClassInSchool, 
+     y = sum_poc$AvgStudInClass,
+     type = 'n',
+     fig.width=1000,
+     main ="Priemerný počet žiakov a tried ZŠ v školskom roku 2023-24",
+     xlab = "priemerný počet tried v škole",
+     ylab = "priemerný počet žiakov v triede")
+text(x = sum_poc$AvgClassInSchool, 
+     y = sum_poc$AvgStudInClass,
+     label = sum_poc$ObecNazov,
+     col = sum_poc$FkIdOkres, cex = 0.5)
+```
+
+## Počet žiakov a tried ZŠ na Orave
+
+v poslednom školskom roku 2023/24
+
+```{r avg-pocty-clust, message=FALSE, warning=FALSE, fig.width=10, fig.height=7}
+normalizuj <- function(x) {
+  return((x - min(x)) / (max(x) - min(x)))
+}
+
+sum_poc$AvgClassInSchoolN <- normalizuj(sum_poc$AvgClassInSchool)
+sum_poc$AvgStudInClassN <- normalizuj(sum_poc$AvgStudInClass)
+clust <- kmeans(sum_poc[c('AvgClassInSchoolN', 'AvgStudInClassN')], 4)
+
+sum_poc$clust <- clust$cluster
+
+plot(x = sum_poc$AvgClassInSchool, 
+     y = sum_poc$AvgStudInClass,
+     type = 'n',
+     fig.width=1000,
+     xlim = c(-2, 35),
+     main ="Priemerný počet žiakov a tried ZŠ v školskom roku 2023-24",
+     xlab = "priemerný počet tried v škole",
+     ylab = "priemerný počet žiakov v triede")
+text(x = sum_poc$AvgClassInSchool, 
+     y = sum_poc$AvgStudInClass,
+     label = sum_poc$ObecNazov,
+     col = sum_poc$clust, cex = 0.8)
+```
+
+V grafe vidíme rozdelenie obcí do klastrov:
+
+-   čiernou farbou obce, kde je málo tried aj málo detí
+
+-   červenou, kde je málo tried a viac detí v triede
+
+-   zelenou, kde je počet detí, aj počet tried vyšší
+
+-   a modrou farbou, kde sú obe počty skôr priemerné
+
+## Variabilita počtu žiakov v triedach
+
+v poslednom školskom roku 2023/24
+
+```{r boxplot, message=FALSE, warning=FALSE, fig.width=10, fig.height=7}
+
+obec <- dbReadTable(con, name = 'cisObceOkresy')
+okres <- dbReadTable(con, name = 'cisObceOkresy') |>
+  rename(IdOkres = IdObec,
+         OkresNazov = ObecNazov,
+         FkIdSelf = FkIdOkres)
+
+sum_poc_okr <- data_poc |> 
+  filter(FkIdSkRok == 28 & PocetTried != 0) |>
+  inner_join(obec, by =  join_by(FkIdObec == IdObec)) |>
+  inner_join(okres, by = join_by(FkIdOkres == IdOkres)) |>
+  mutate(StudInClass = PocetZiakov/PocetTried)
+
+sum_poc_okr %>% 
+  ggplot(aes(x = TypSkolyDesc, y = StudInClass, fill = OkresNazov)) +
+  geom_boxplot() +
+  labs(x = "", y = "počet žiakov / študentov v triede", 
+       title = "Variabilita počtu žiakov v triedach ZŠ a SŠ",
+       fill = "Okres") +
+  theme(plot.title = element_text(size = 16),
+        axis.text.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))
+
+```
+
+## Počty žiakov a študentov
+
+-   vo všetkých troch okresoch
+
+```{r demo, fig.width=10, fig.height=8}
+poctyVek <- dbReadTable(con, name = 'poctyVek')
+vekKat <- dbReadTable(con, name = 'cisVekKat')
+
+poctyVek <- poctyVek |> 
+  inner_join(vekKat, by = join_by(FkIdVekKat == IdVekKat)) |>
+  inner_join(rok, by = join_by(FkIdSkRok == IdSkRok)) 
+
+demo <- poctyVek |>
+  group_by(VekKatDesc, SkolskyRok) |>
+  summarise(pocet = sum(PocetOsob),  .groups = "drop")
+
+demo %>% 
+  ggplot(aes(x = SkolskyRok, y = pocet, color = VekKatDesc)) +
+  geom_segment(aes(xend = SkolskyRok, yend = 0, color = VekKatDesc)) +
+  geom_point(size = 4) +
+  coord_flip() +
+  labs(x = "", y = "Počet detí / mladých na Orave", 
+       title = "Počet detí / mladých vo vekových kategóriách za uplynulé roky",
+       color = "Veková kategória") +
+  theme(plot.title = element_text(size = 16),
+        axis.text.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))
+
+```
+
+### Porovnanie demografie okresov
+
+```{r demo-okres, warning=FALSE, message=FALSE, fig.width=10, fig.height=8}
+demo_graf <-function(data, title) {
+  ret <- data %>% 
+  ggplot(aes(x = SkolskyRok, y = pocet, color = OkresNazov)) +
+  geom_segment(aes(xend = SkolskyRok, yend = 0, color = OkresNazov)) +
+  geom_point(size = 4) +
+  coord_flip() +
+  labs(x = "", y = "Počet detí / mladých na Orave", 
+       title = title,
+       color = "Okres") +
+  theme(plot.title = element_text(size = 16),
+        axis.text.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))
+  return(ret)
+}
+
+poctyVek <- poctyVek |> 
+  inner_join(obec, by = join_by(FkIdObec == IdObec)) |>
+  inner_join(okres, by = join_by(FkIdOkres == IdOkres)) 
+
+demo1 <- poctyVek |>
+  filter(FkIdVekKat == 1) |>
+  group_by(OkresNazov, SkolskyRok) |>
+  summarise(pocet = sum(PocetOsob),  .groups = "drop")
+demo1 |> demo_graf("Počet detí vo veku 6 - 14 rokov za uplynulé roky")
+
+demo1 <- poctyVek |>
+  filter(FkIdVekKat == 2) |>
+  group_by(OkresNazov, SkolskyRok) |>
+  summarise(pocet = sum(PocetOsob),  .groups = "drop")
+demo1 |> demo_graf("Počet mladých vo veku 15 - 19 rokov za uplynulé roky")
+
+```
+
+## Je vzťah medzi rozpočtom a hodnotením školy?
+
+Zistime vzťah medzi rozpočtom na žiaka a hodnotením v rebríčku INEKO za všetky sledované roky
+
+**pre ZŠ 1 - 9**
+
+roky: 2020/21 - 2023/24
+
+```{r data-kor}
+
+# Príprava dát volaním SQL funkcie
+data_kor <- data.frame()
+
+# cyklus 
+for (i in 25:28) {
+  sql_dotaz <- paste0('SELECT * FROM [DAKO_ORAVA].[dbo].[dako_ScoreBudgetForYearType](12, ', i, ')')
+  data_temp <- dbGetQuery(con, sql_dotaz)
+
+  # pripoj do hlavného df
+  data_kor <- rbind(data_kor, data_temp)
+}
+
+```
+
+```{r scatter-kor}
+
+korelacia <- cor(data_kor$Skore, data_kor$Rozpocet_na_ziaka)
+anotacia <- data.frame(
+  xx <- max(data_kor$Skore) + 2,
+  yy <- max(data_kor$Rozpocet_na_ziaka),
+  label <- paste('Typ školy: ', 
+                 data_kor$TypSkolyDesc,
+                 '\n r = ', 
+                 round(korelacia, 3))
+)
+
+g <- data_kor %>% 
+  ggplot(aes(x = Skore, y = Rozpocet_na_ziaka)) +
+    geom_point() +
+    labs(title = "Vzťah medzi hodnotením školy a rozpočtom na žiaka (2020/21 - 2023/24)",
+       x = "Skóre INEKO",
+       y = "Rozpočet na žiaka") +
+  geom_text(data = anotacia,
+            aes(x = xx, y = yy, label = label),
+            hjust = 1,
+            vjust = 1)
+g
+```
+
+
+```{r close}
+dbDisconnect(con = con)
+```
